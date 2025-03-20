@@ -26,13 +26,14 @@ Hey there! This is a neat little tool I threw together to keep an eye on your sy
    ```bash
    git clone https://github.com/BinarySapling/OS_CA.git
    cd OS_CA
-   pip install flask flask-socketio psutil
+2.Install Dependencies
+   - pip install flask flask-socketio psutil   
+
+3.Project Structure
    OS_CA/
-Project Structure
-    ├── app.py
-    ├── templates/
-    │   └── index.html
-    └── README.md
-Run It
-  python app.py
-Open It Hit http://localhost:5000 in your browser. Boom—dashboard time.
+   ├── app.py
+   ├── templates/
+   │   └── index.html
+   └── README.md   
+4.Run the Application
+   python app.py
