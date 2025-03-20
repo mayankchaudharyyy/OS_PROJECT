@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Process Monitoring Dashboard</title>
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px 10px; 
+            background-color: #1a1a1a; 
+            color: #d8bfd8
+        }
+        h1 {color: #9370db;}
+        .summary {
+            margin-bottom: 20px; 
+            background-color: #2a1a2a;
+            padding: 15px;
+            border-radius: 8px
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse; 
+            background-color: #2a2a2a;
+            margin-top: 20px; /* space above table */
+        }
+        th, td {
+            border: 1px solid #4b0082;
+            padding: 10px; 
+            text-align: left
+        }
+        th {
+            background-color: #4b0082; 
+            color: #e6e6fa
+        }
+        td {color: #d8bfd8;}
+        .alert {
+            color: #ff4040; 
+            background-color: #3a1a1a
+        }
+        .charts {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column; /* stack charts */
+            gap: 20px;
+        }
+        canvas {
+            width: 100% !important; /* full width now */
+            max-width: none; /* no cap */
+            height: 300px; /* decent height */
+            background-color: #2a2a2a;
+            border-radius: 8px; 
+            padding: 10px;
+        }
+        button {
+            padding: 5px 10px;
+            cursor: pointer; 
+            background-color: #9370db;
+            color: white;
+            border: none;
+            border-radius: 4px; 
+            transition: background-color 0.3s;
+        }
+        button:hover {background-color: #7b68ee}
+        #messages p {
+            padding: 8px; 
+            margin: 5px 0;
+            border-radius: 4px;
+            background-color: #3a2a3a
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-Time Process Monitoring Dashboard</h1>
+    <div class="summary">
+        <p>Total CPU Usage: <span id="cpu">0%</span></p>
+        <p>Total Memory: <span id="memory">0 GB / 0 GB (0%)</span></p>
+        <p>Active Processes: <span id="proc_count">0</span></p>
+    </div>
+
+    <!-- Moved charts up here -->
+    <div class="charts">
+        <canvas id="cpuChart"></canvas>
+        <canvas id="memoryChart"></canvas>
+    </div>
+
+    <table id="processTable">
+        <thead>
+            <tr>
+                <th>PID</th>
+                <th>Name</th>
+                <th>CPU (%)</th>
+                <th>Memory (%)</th>
+                <th>State</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <div id="messages"></div>
+
+    <script>
+        // hook up to server
+        let socket = io('http://localhost:5000') // point to our flask app
+        console.log('trying to connect...')
+
+        // set up charts
+        let cpuChart
+        let cpuCtx = document.getElementById('cpuChart').getContext('2d')
+        cpuChart = new Chart(cpuCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'CPU Usage (%)',
+                    data: [],
+                    borderColor: '#9370db',
+                    backgroundColor: 'rgba(147,112,219,0.2)',
+                    fill: true
+                }]
+            },
+            options: {
+                scales: {
+                    y: {min:0, max:100, grid:{color:'#4b0082'}},
+                    x: {grid:{color:'#4b0082'}}
+                },
+                plugins: {legend:{labels:{color:'#d8bfd8'}}}
+            }
+        })
+
+        let memoryChart
+        let memCtx = document.getElementById('memoryChart').getContext('2d')
+        memoryChart = new Chart(memCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Memory Usage (%)',
+                    data: [],
+                    borderColor: '#7b68ee', 
+                    backgroundColor: 'rgba(123,104,238,0.2)',
+                    fill: true
+                }]
+            },
+            options: {
+                scales: {
+                    y:{min:0,max:100,grid:{color:'#4b0082'}},
+                    x:{grid:{color:'#4b0082'}}
+                },
+                plugins:{legend:{labels:{color:'#d8bfd8'}}}
+            }
+        })
+
+        // handle updates from server
+        socket.on('update', function(data) {
+            // update summary
+            document.getElementById('cpu').textContent = data.total_cpu + '%'
+            document.getElementById('memory').innerHTML = data.total_memory_used + ' GB / ' + data.total_memory_total + ' GB (' + data.total_memory + '%)'
+            document.getElementById('proc_count').textContent = data.processes.length
+
+            // fill up the table
+            let tbody = document.querySelector('#processTable tbody')
+            tbody.innerHTML = ''
+            for(let proc of data.processes) {
+                let row = document.createElement('tr')
+                row.innerHTML = '<td>' + proc.pid + '</td>' + 
+                              '<td>' + proc.name + '</td>' +
+                              '<td>' + proc.cpu + '</td>' + 
+                              '<td>' + proc.memory + '</td>' +
+                              '<td>' + proc.state + '</td>' +
+                              '<td><button onclick="killProcess(' + proc.pid + ')">Kill</button></td>'
+                if(proc.cpu > 80 || proc.memory > 80) row.classList.add('alert')
+                tbody.appendChild(row)
+            }
+
+            // shove data into charts
+            let now = new Date().toLocaleTimeString()
+            cpuChart.data.labels.push(now)
+            cpuChart.data.datasets[0].data.push(data.total_cpu)
+            memoryChart.data.labels.push(now)
+            memoryChart.data.datasets[0].data.push(data.total_memory)
+
+            if(cpuChart.data.labels.length > 20) {
+                cpuChart.data.labels.shift()
+                cpuChart.data.datasets[0].data.shift()
+                memoryChart.data.labels.shift()
+                memoryChart.data.datasets[0].data.shift()
+            }
+            cpuChart.update()
+            memoryChart.update()
+        })
+
+        // kill a process
+        function killProcess(pid) {
+            socket.emit('kill_process', pid)
+            console.log('killing ' + pid)
+        }
+
+        // show messages
+        socket.on('message', function(msg) {
+            let messages = document.getElementById('messages')
+            let p = document.createElement('p')
+            p.textContent = msg.msg
+            p.style.color = msg.status == 'error' ? '#ff4040' : '#98fb98'
+            messages.appendChild(p)
+            setTimeout(() => p.remove(), 5000)
+        })
+
+        // oops, connection died
+        socket.on('connect_error', function(err) {
+            console.log('connection error: ' + err)
+            let messages = document.getElementById('messages')
+            let p = document.createElement('p')
+            p.textContent = 'Server connection lost'
+            p.style.color = '#ff4040'
+            messages.appendChild(p)
+            setTimeout(() => p.remove(), 5000)
+        })
+    </script>
+</body>
+</html>
